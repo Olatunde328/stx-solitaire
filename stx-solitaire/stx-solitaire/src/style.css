@@ -138,3 +138,46 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
   color:white;
   border-color:transparent;
 }
+
+.opponent-panel{
+  margin-top:18px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:16px;
+  display:none;
+}
+.opponent-title{
+  font-weight:700;
+  color:var(--cyan);
+  margin-bottom:8px;
+}
+.opponent-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  color:var(--muted);
+  font-size:13px;
+  margin-bottom:8px;
+}
+.opponent-row strong{
+  color:var(--text);
+  font-family:'Space Mono',monospace;
+}
+.opponent-meter{
+  height:8px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:999px;
+  overflow:hidden;
+}
+.opponent-meter div{
+  height:100%;
+  background:linear-gradient(135deg,var(--cyan),var(--purple-light));
+  transition:width .4s ease;
+}
+.opponent-note{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.5;
+}
