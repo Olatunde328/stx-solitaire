@@ -260,9 +260,15 @@ function endGameTimeout(){
   clearInterval(timerInterval);
   gameActive=false;
   sel=null;
-  showToast('⏰ Time up! 4 minutes reached. Start a new game.','error');
+  showToast('⏰ Time up! 4 minutes reached. New game starting...','error');
   document.getElementById('winOverlay').classList.remove('show');
   render();
+
+  setTimeout(()=>{
+    if(!gameActive){
+      newGame();
+    }
+  },1800);
 }
 
 function setGameMode(mode){
