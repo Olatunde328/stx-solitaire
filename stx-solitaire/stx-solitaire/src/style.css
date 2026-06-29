@@ -181,3 +181,15 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
   font-size:12px;
   line-height:1.5;
 }
+
+.invite-box{
+  background:rgba(255,255,255,.04);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px;
+  color:var(--cyan);
+  font-size:11px;
+  line-height:1.5;
+  word-break:break-all;
+  font-family:'Space Mono',monospace;
+}

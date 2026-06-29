@@ -24,6 +24,8 @@ const MAX_GAME_SECONDS=240;
 let robotProgress=0;
 let robotFinishTime=0;
 let robotHasFinished=false;
+let currentMatchId=null;
+let invitedMatchId=null;
 let sel=null; // {card, sType, sIdx, cIdx}
 let playerProfile=null;
 
@@ -161,6 +163,36 @@ function pickupCards(sType,sIdx,cIdx){
   return[];
 }
 
+function generateMatchId(){
+  return 'match_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+}
+
+function getInviteLink(matchId){
+  const url=new URL(window.location.href);
+  url.searchParams.set('match',matchId);
+  return url.toString();
+}
+
+function detectInviteMatch(){
+  const params=new URLSearchParams(window.location.search);
+  const match=params.get('match');
+  if(match){
+    invitedMatchId=match;
+    currentMatchId=match;
+    gameMode='pvp';
+  }
+}
+
+function createPvpMatch(){
+  currentMatchId=generateMatchId();
+  const link=getInviteLink(currentMatchId);
+  navigator.clipboard?.writeText(link).then(
+    ()=>showToast('🔗 PvP invite link copied!','success'),
+    ()=>showToast('🔗 Invite link created. Copy it from the panel.','info')
+  );
+  updateOpponentUI();
+}
+
 function setupRobotOpponent(){
   robotProgress=0;
   robotHasFinished=false;
@@ -185,9 +217,26 @@ function updateOpponentUI(){
       <div class="opponent-row"><span>Robot progress</span><strong>${Math.min(robotProgress,100)}%</strong></div>
       <div class="opponent-meter"><div style="width:${Math.min(robotProgress,100)}%"></div></div>`;
   }else if(gameMode==='pvp'){
+    const link=currentMatchId?getInviteLink(currentMatchId):'';
     el.innerHTML=`<div class="opponent-title">👥 Player vs Player</div>
-      <div class="opponent-row"><span>Status</span><strong>Coming next</strong></div>
-      <p class="opponent-note">This will support invite links and wallet-vs-wallet matches.</p>`;
+      <div class="opponent-row"><span>Match</span><strong>${currentMatchId?'Created':'Not created'}</strong></div>
+      <div class="opponent-row"><span>Status</span><strong>${invitedMatchId?'Joined via invite':'Invite mode'}</strong></div>
+      ${currentMatchId?`<div class="invite-box">${link}</div>`:''}
+      <button class="btn btn-sm" id="createPvpBtn" style="margin-top:10px">${currentMatchId?'Copy Invite Link':'Create Invite Link'}</button>
+      <p class="opponent-note">First version: share the link and compare completion time. Real-time multiplayer comes next.</p>`;
+
+    setTimeout(()=>{
+      const btn=document.getElementById('createPvpBtn');
+      if(btn){
+        btn.onclick=()=>{
+          if(!currentMatchId)createPvpMatch();
+          else{
+            navigator.clipboard?.writeText(getInviteLink(currentMatchId));
+            showToast('🔗 Invite link copied!','success');
+          }
+        };
+      }
+    },0);
   }
 }
 
@@ -222,6 +271,7 @@ function setGameMode(mode){
   const active=document.querySelector(`[data-mode="${mode}"]`);
   if(active)active.classList.add('active');
 
+  if(mode==='pvp'&&!currentMatchId){currentMatchId=null;}
   if(mode==='robot'){
     showToast('🤖 Player vs Robot mode selected. Robot logic coming next.','info');
   }else if(mode==='pvp'){
@@ -357,8 +407,9 @@ document.getElementById('disconnectBtn').onclick=()=>{signOut();location.reload(
 document.getElementById('newGameBtn').onclick=newGame;
 document.getElementById('soloModeBtn').onclick=()=>setGameMode('solo');
 document.getElementById('robotModeBtn').onclick=()=>setGameMode('robot');
-document.getElementById('pvpModeBtn').onclick=()=>setGameMode('pvp');
+document.getElementById('pvpModeBtn').onclick=()=>{setGameMode('pvp');updateOpponentUI();};
 document.getElementById('playAgainBtn').onclick=()=>{document.getElementById('winOverlay').classList.remove('show');newGame();};
 document.getElementById('claimBtn').onclick=()=>{showToast('📡 Broadcasting to Stacks testnet…','info');claimRewardOnChain(score,_fastWin,_efficient,txId=>showToast(`✅ Claimed! TX: ${txId.slice(0,12)}…`,'success'),err=>showToast(`⚠️ ${err}`,'error'));document.getElementById('winOverlay').classList.remove('show');newGame();};
 
+detectInviteMatch();
 if(isSignedIn())afterConnect(getUser());
