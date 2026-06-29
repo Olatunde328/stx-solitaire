@@ -67,3 +67,43 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
 .confetti-piece{position:fixed;width:10px;height:10px;top:-10px;border-radius:2px;animation:fall linear forwards;pointer-events:none;z-index:500}
 @keyframes fall{to{transform:translateY(110vh) rotate(720deg);opacity:0}}
 @media(max-width:600px){:root{--card-w:56px;--card-h:80px}header{padding:12px 14px}.wallet-gate h2{font-size:22px}.game-wrap{padding:14px 8px}}
+
+.profile-card{
+  margin-top:18px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:16px;
+  display:grid;
+  gap:8px;
+}
+.profile-title{
+  font-weight:700;
+  color:var(--purple-light);
+  margin-bottom:4px;
+}
+.profile-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  color:var(--muted);
+  font-size:13px;
+}
+.profile-row strong{
+  color:var(--text);
+  font-family:'Space Mono',monospace;
+}
+.profile-achievements{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+.profile-achievements span{
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:4px 8px;
+  color:var(--cyan);
+  font-size:11px;
+}
