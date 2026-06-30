@@ -1,0 +1,14 @@
+[network]
+name = "devnet"
+deployment_fee_rate = 10
+
+[accounts.deployer]
+mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+balance = 100000000000000
+
+[devnet]
+disable_stacks_explorer = false
+disable_stacks_api = false
+disable_bitcoin_explorer = true
+disable_bitcoin_api = true
+working_dir = "tmp/devnet"

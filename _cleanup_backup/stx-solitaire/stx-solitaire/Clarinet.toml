@@ -1,0 +1,14 @@
+[project]
+name = 'stx-solitaire'
+description = 'STX Solitaire reward contract'
+authors = []
+telemetry = false
+cache_dir = './.cache'
+
+[contracts.solitaire-rewards]
+path = 'contracts/solitaire-rewards.clar'
+clarity_version = 3
+epoch = 3.0
+
+[repl.analysis]
+passes = ['check_checker']
