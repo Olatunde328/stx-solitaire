@@ -193,3 +193,46 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
   word-break:break-all;
   font-family:'Space Mono',monospace;
 }
+
+.history-panel{
+  margin-top:18px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:16px;
+}
+.history-title{
+  font-weight:700;
+  color:var(--green);
+  margin-bottom:8px;
+}
+.history-empty{
+  color:var(--muted);
+  font-size:12px;
+}
+.history-item{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 0;
+  border-top:1px solid var(--border);
+}
+.history-item:first-of-type{
+  border-top:none;
+}
+.history-item strong{
+  display:block;
+  color:var(--text);
+  font-size:13px;
+}
+.history-item span{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  margin-top:2px;
+}
+.history-item small{
+  color:var(--cyan);
+  font-family:'Space Mono',monospace;
+  white-space:nowrap;
+}
