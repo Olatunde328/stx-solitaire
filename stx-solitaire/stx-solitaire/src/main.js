@@ -2,6 +2,7 @@ import { showConnect, UserSession, AppConfig } from '@stacks/connect';
 import { StacksTestnet } from '@stacks/network';
 import { makeContractCall, AnchorMode, PostConditionMode, uintCV, boolCV } from '@stacks/transactions';
 import { loadProfile, saveProfile, recordGameStart, recordWin, formatTime } from './player.js';
+import { createSession, updateSession, finishSession, loadSession } from './session.js';
 
 const appConfig = new AppConfig(['store_write','publish_data']);
 const userSession = new UserSession({ appConfig });
@@ -26,6 +27,7 @@ let robotFinishTime=0;
 let robotHasFinished=false;
 let currentMatchId=null;
 let invitedMatchId=null;
+let currentSession=null;
 let sel=null; // {card, sType, sIdx, cIdx}
 let playerProfile=null;
 
@@ -40,6 +42,9 @@ function newGame(){
   const deck=shuffle(buildDeck());let idx=0;
   for(let col=0;col<7;col++)for(let row=0;row<=col;row++){const c={...deck[idx++]};c.face=(row===col);tableau[col].push(c);}
   stock=deck.slice(idx).map(c=>({...c,face:false}));
+  const walletAddr=playerProfile?.walletAddress||'';
+  currentSession=createSession({walletAddress:walletAddr,mode:gameMode});
+  updateSession({seconds,moves,score});
   if(playerProfile){playerProfile=recordGameStart(playerProfile);updateProfileUI();}
   updateStats();render();
   timerInterval=setInterval(()=>{seconds++;updateStats();robotTick();if(seconds>=MAX_GAME_SECONDS&&gameActive){endGameTimeout();}},1000);
@@ -49,6 +54,7 @@ function updateProfileUI(){
   if(!playerProfile)return;
   const el=document.getElementById('profileCard');
   if(!el)return;
+  const activeSession=loadSession();
   el.innerHTML=`<div class="profile-title">Player Profile</div>
     <div class="profile-row"><span>Level</span><strong>${playerProfile.level}</strong></div>
     <div class="profile-row"><span>XP</span><strong>${playerProfile.xp}</strong></div>
@@ -57,10 +63,12 @@ function updateProfileUI(){
     <div class="profile-row"><span>Streak</span><strong>${playerProfile.currentStreak}</strong></div>
     <div class="profile-row"><span>Best Time</span><strong>${formatTime(playerProfile.bestTime)}</strong></div>
     <div class="profile-row"><span>Best Moves</span><strong>${playerProfile.bestMoves ?? '—'}</strong></div>
+    <div class="profile-row"><span>Session</span><strong>${activeSession?.id?.slice(0,10) ?? '—'}</strong></div>
     <div class="profile-achievements">${playerProfile.achievements.slice(-3).map(a=>`<span>${a}</span>`).join('')}</div>`;
 }
 
 function updateStats(){
+  if(gameActive){updateSession({seconds,moves,score});}
   const m=Math.floor(seconds/60),s=seconds%60;
   document.getElementById('timerDisplay').textContent=`${m}:${s.toString().padStart(2,'0')}`;
   document.getElementById('movesDisplay').textContent=moves;
@@ -260,6 +268,7 @@ function endGameTimeout(){
   clearInterval(timerInterval);
   gameActive=false;
   sel=null;
+  finishSession({won:false,timedOut:true,seconds,moves,score});
   showToast('⏰ Time up! 4 minutes reached. New game starting...','error');
   document.getElementById('winOverlay').classList.remove('show');
   render();
@@ -294,6 +303,7 @@ function checkWin(){
   clearInterval(timerInterval);gameActive=false;
   if(gameMode==='robot'&&!robotHasFinished){showToast('🏆 You beat the robot!','success');}
   _fastWin=seconds<120;_efficient=moves<100;
+  finishSession({won:true,timedOut:false,seconds,moves,score});
   const reward=calcReward();totalEarned+=reward;if(playerProfile){playerProfile=recordWin(playerProfile,{seconds,moves,reward});updateProfileUI();}updateStats();
   document.getElementById('winReward').innerHTML=`+${reward.toFixed(3)} STX <span>Completed in ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} before the 4-minute limit</span>`;
   document.getElementById('winOverlay').classList.add('show');
