@@ -75,7 +75,7 @@ body{
   border:2px dashed rgba(255,255,255,.35);
   position:relative;
 }
-.foundation span{
+.foundation > span{
   position:absolute;
   inset:0;
   display:grid;
