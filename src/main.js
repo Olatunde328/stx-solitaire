@@ -215,6 +215,8 @@ function bindBoard(){
   document.getElementById('stockBtn').onclick = drawStock;
 
   document.querySelectorAll('.card').forEach(card => {
+    if(card.id === 'stockBtn') return;
+
     card.onclick = e => {
       e.stopPropagation();
 
