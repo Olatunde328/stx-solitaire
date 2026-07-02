@@ -52,6 +52,18 @@ function drawStock(){
   updateStats();
 }
 
+function revealAvailableTopCards(){
+  state.tableau.forEach((pile)=>{
+    if(pile.length){
+      const top = pile[pile.length - 1];
+      if(!top.faceUp){
+        top.faceUp = true;
+        state.score += 5;
+      }
+    }
+  });
+}
+
 function getSelectedCards(){
   const s = state.selected;
   if(!s) return [];
@@ -109,6 +121,7 @@ function moveToTableau(col){
   if(canMoveToTableau(cards[0], state.tableau[col])){
     state.tableau[col].push(...cards);
     removeSelected();
+    revealAvailableTopCards();
     state.moves++;
     state.score += 15;
     render();
@@ -126,6 +139,7 @@ function moveToFoundation(index){
   if(canMoveToFoundation(cards[0], state.foundations[index])){
     state.foundations[index].push(cards[0]);
     removeSelected();
+    revealAvailableTopCards();
     state.moves++;
     state.score += 100;
     render();
