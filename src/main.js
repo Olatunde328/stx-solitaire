@@ -1,566 +1,350 @@
-import { showConnect, UserSession, AppConfig } from '@stacks/connect';
-import { StacksTestnet } from '@stacks/network';
-import { makeContractCall, AnchorMode, PostConditionMode, uintCV, boolCV } from '@stacks/transactions';
-import { unlockedAchievements, evaluateAchievements, achievementById } from './achievements.js';
-import { loadProfile, saveProfile, recordGameStart, recordWin, formatTime } from './player.js';
-import { createSession, updateSession, finishSession, loadSession, loadHistory } from './session.js';
-import { loadDailyMissions, progressMission, getCompletedMissionRewards } from './missions.js';
+import './style.css';
 
-const appConfig = new AppConfig(['store_write','publish_data']);
-const userSession = new UserSession({ appConfig });
-const network = new StacksTestnet();
-const CONTRACT_ADDRESS = 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM';
-const CONTRACT_NAME = 'solitaire-rewards';
+const SUITS = ['♠','♥','♦','♣'];
+const RED = new Set(['♥','♦']);
+const VALUES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const MAX_GAME_SECONDS = 240;
 
-function connectWallet(cb){showConnect({appDetails:{name:'STX Solitaire',icon:window.location.origin+'/favicon.ico'},redirectTo:'/',onFinish:()=>cb(userSession.loadUserData()),userSession});}
-function isSignedIn(){return userSession.isUserSignedIn();}
-function getUser(){return isSignedIn()?userSession.loadUserData():null;}
-function signOut(){userSession.signUserOut('/');}
-async function claimRewardOnChain(score,fast,efficient,onSuccess,onError){if(!isSignedIn())return onError('Not signed in');try{await makeContractCall({contractAddress:CONTRACT_ADDRESS,contractName:CONTRACT_NAME,functionName:'claim-reward',functionArgs:[uintCV(score),boolCV(fast),boolCV(efficient)],network,anchorMode:AnchorMode.Any,postConditionMode:PostConditionMode.Allow,onFinish:d=>onSuccess(d.txId),onCancel:()=>onError('Cancelled')});}catch(e){onError(e.message);}}
+let deck = [];
+let stock = [];
+let waste = [];
+let foundations = [[],[],[],[]];
+let tableau = [[],[],[],[],[],[],[]];
+let selected = null;
+let seconds = 0;
+let moves = 0;
+let score = 0;
+let timer = null;
+let active = false;
 
-const SUITS=['♠','♥','♦','♣'],SUIT_CLR={'♠':'black','♣':'black','♥':'red','♦':'red'},VALUES=['A','2','3','4','5','6','7','8','9','10','J','Q','K'],VAL_NUM={};
-VALUES.forEach((v,i)=>VAL_NUM[v]=i+1);
-let stock=[],waste=[],foundations=[[],[],[],[]],tableau=[[],[],[],[],[],[],[]];
-let moves=0,score=0,seconds=0,timerInterval=null,gameActive=false,totalEarned=0,_fastWin=false,_efficient=false;
-let gameMode='solo';
-const MAX_GAME_SECONDS=240;
-let robotProgress=0;
-let robotFinishTime=0;
-let robotHasFinished=false;
-let currentMatchId=null;
-let invitedMatchId=null;
-let currentSession=null;
-let sel=null; // {card, sType, sIdx, cIdx}
-let playerProfile=null;
-
-function buildDeck(){const d=[];SUITS.forEach(s=>VALUES.forEach(v=>d.push({suit:s,val:v,face:false})));return d;}
-function shuffle(d){for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}return d;}
-
-function newGame(){
-  clearInterval(timerInterval);
-  moves=0;score=0;seconds=0;gameActive=true;sel=null;_fastWin=false;_efficient=false;
-  foundations=[[],[],[],[]];tableau=[[],[],[],[],[],[],[]];waste=[];
-  if(gameMode==='robot')setupRobotOpponent();else updateOpponentUI();
-  const deck=shuffle(buildDeck());let idx=0;
-  for(let col=0;col<7;col++)for(let row=0;row<=col;row++){const c={...deck[idx++]};c.face=(row===col);tableau[col].push(c);}
-  stock=deck.slice(idx).map(c=>({...c,face:false}));
-  const beforeMissionPlay=loadDailyMissions();
-  const afterMissionPlay=progressMission('play_one',1);
-  awardCompletedMissions(beforeMissionPlay,afterMissionPlay);
-  const walletAddr=playerProfile?.walletAddress||'';
-  currentSession=createSession({walletAddress:walletAddr,mode:gameMode});
-  updateSession({seconds,moves,score});
-  if(playerProfile){playerProfile=recordGameStart(playerProfile);updateProfileUI();}
-  updateStats();render();
-  timerInterval=setInterval(()=>{seconds++;updateStats();robotTick();if(seconds>=MAX_GAME_SECONDS&&gameActive){endGameTimeout();}},1000);
+function buildDeck(){
+  return SUITS.flatMap(suit => VALUES.map((val, i) => ({
+    suit,
+    val,
+    rank: i + 1,
+    face: false,
+    id: `${suit}-${val}-${Math.random()}`
+  })));
 }
 
-function updateProfileUI(){
-  updateHistoryUI();
-  updateLeaderboardUI();
-  updateMissionsUI();
-  updateAchievementsUI();
-  if(!playerProfile)return;
-  const el=document.getElementById('profileCard');
-  if(!el)return;
-  const activeSession=loadSession();
-  el.innerHTML=`<div class="profile-title">Player Profile</div>
-    <div class="profile-row"><span>Level</span><strong>${playerProfile.level}</strong></div>
-    <div class="profile-row"><span>XP</span><strong>${playerProfile.xp}</strong></div>
-    <div class="profile-row"><span>Games</span><strong>${playerProfile.gamesPlayed}</strong></div>
-    <div class="profile-row"><span>Wins</span><strong>${playerProfile.wins}</strong></div>
-    <div class="profile-row"><span>Streak</span><strong>${playerProfile.currentStreak}</strong></div>
-    <div class="profile-row"><span>Best Time</span><strong>${formatTime(playerProfile.bestTime)}</strong></div>
-    <div class="profile-row"><span>Best Moves</span><strong>${playerProfile.bestMoves ?? '—'}</strong></div>
-    <div class="profile-row"><span>Session</span><strong>${activeSession?.id?.slice(0,10) ?? '—'}</strong></div>
-    <div class="profile-achievements">${playerProfile.achievements.slice(-3).map(a=>`<span>${a}</span>`).join('')}</div>`;
+function shuffle(cards){
+  const a = [...cards];
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
 }
 
-function updateStats(){
-  if(gameActive){updateSession({seconds,moves,score});}
-  const m=Math.floor(seconds/60),s=seconds%60;
-  document.getElementById('timerDisplay').textContent=`${m}:${s.toString().padStart(2,'0')}`;
-  document.getElementById('movesDisplay').textContent=moves;
-  document.getElementById('scoreDisplay').textContent=score;
-  document.getElementById('rewardDisplay').textContent=totalEarned.toFixed(3);
+function startGame(){
+  clearInterval(timer);
+  deck = shuffle(buildDeck());
+  stock = [];
+  waste = [];
+  foundations = [[],[],[],[]];
+  tableau = [[],[],[],[],[],[],[]];
+  selected = null;
+  seconds = 0;
+  moves = 0;
+  score = 0;
+  active = true;
+
+  let index = 0;
+  for(let col=0; col<7; col++){
+    for(let row=0; row<=col; row++){
+      const card = deck[index++];
+      card.face = row === col;
+      tableau[col].push(card);
+    }
+  }
+
+  stock = deck.slice(index).map(c => ({...c, face:false}));
+
+  timer = setInterval(() => {
+    seconds++;
+    updateStats();
+    if(seconds >= MAX_GAME_SECONDS){
+      gameOver();
+    }
+  }, 1000);
+
+  document.getElementById('gameOver').classList.remove('show');
+  render();
+  updateStats();
+}
+
+function gameOver(){
+  clearInterval(timer);
+  active = false;
+  document.getElementById('gameOver').classList.add('show');
+  document.getElementById('gameOverTitle').textContent = 'Game Over';
+  document.getElementById('gameOverText').textContent = 'Your 4 minutes are up. Play again or quit for now.';
+}
+
+function winGame(){
+  clearInterval(timer);
+  active = false;
+  document.getElementById('gameOver').classList.add('show');
+  document.getElementById('gameOverTitle').textContent = 'You Won!';
+  document.getElementById('gameOverText').textContent = `Completed in ${formatTime(seconds)} with ${moves} moves.`;
 }
 
 function drawStock(){
-  if(stock.length===0){if(!waste.length)return;stock=[...waste].reverse().map(c=>({...c,face:false}));waste=[];score=Math.max(0,score-100);}
-  else{const c=stock.pop();c.face=true;waste.push(c);moves++;score+=5;}
-  updateStats();render();
-}
+  if(!active)return;
 
-function canF(card,f){const fd=foundations[f];if(!fd.length)return card.val==='A';const t=fd[fd.length-1];return t.suit===card.suit&&VAL_NUM[card.val]===VAL_NUM[t.val]+1;}
-function canT(card,col){const t=tableau[col];if(!t.length)return card.val==='K';const top=t[t.length-1];if(!top.face)return false;return SUIT_CLR[card.suit]!==SUIT_CLR[top.suit]&&VAL_NUM[card.val]===VAL_NUM[top.val]-1;}
-
-function flipTop(col){const c=tableau[col];if(c.length&&!c[c.length-1].face){c[c.length-1].face=true;score+=5;}}
-
-function tryAutoFoundation(card,sType,sIdx,cIdx){
-  for(let f=0;f<4;f++){
-    if(canF(card,f)){
-      removeCard(sType,sIdx,cIdx);
-      foundations[f].push(card);
-      score+=15;moves++;
-      updateStats();checkWin();render();
-      return true;
-    }
-  }
-  return false;
-}
-
-function removeCard(sType,sIdx,cIdx){
-  if(sType==='waste')waste.pop();
-  else if(sType==='tableau'){tableau[sIdx].splice(cIdx);flipTop(sIdx);}
-  else if(sType==='foundation')foundations[sIdx].pop();
-}
-
-// Central click handler — called by every card and every slot
-function handleClick(type, idx, cardIdx){
-  // Clicking stock
-  if(type==='stock'){drawStock();return;}
-
-  // Nothing selected yet — select this card
-  if(!sel){
-    let card=null;
-    if(type==='waste'&&waste.length)card=waste[waste.length-1];
-    else if(type==='foundation'&&foundations[idx].length)card=foundations[idx][foundations[idx].length-1];
-    else if(type==='tableau'&&tableau[idx][cardIdx]?.face)card=tableau[idx][cardIdx];
-    if(!card)return;
-    // Try auto-move to foundation on single top-card click
-    const sIdx2=idx,cIdx2=cardIdx;
-    const isSingleCard=(type==='waste')||(type==='tableau'&&cardIdx===tableau[idx].length-1)||(type==='foundation');
-    if(isSingleCard&&tryAutoFoundation(card,type,sIdx2,cIdx2))return;
-    sel={card,sType:type,sIdx:idx,cIdx:cardIdx};
-    render();
-    return;
-  }
-
-  // Something already selected — try to move it here
-  const {card,sType,sIdx,cIdx}=sel;
-  let moved=false;
-
-  if(type==='foundation'||(type==='tableau'&&cardIdx===-1)){
-    // dropping on foundation slot or empty tableau
-    const destIdx=idx;
-    if(type==='foundation'){
-      if(canF(card,destIdx)){
-        const isTop=(sType==='waste')||(sType==='foundation')||(sType==='tableau'&&cIdx===tableau[sIdx].length-1);
-        if(isTop){removeCard(sType,sIdx,cIdx);foundations[destIdx].push(card);score+=15;moves++;moved=true;}
-        else showToast('Move only one card to foundation','error');
-      }
-    } else {
-      // empty tableau col
-      if(canT(card,destIdx)){
-        const cards=pickupCards(sType,sIdx,cIdx);
-        tableau[destIdx].push(...cards);score+=5;moves++;moved=true;
-      }
-    }
-  } else if(type==='tableau'){
-    // dropping on a face-up tableau card
-    if(canT(card,idx)){
-      const cards=pickupCards(sType,sIdx,cIdx);
-      tableau[idx].push(...cards);score+=5;moves++;moved=true;
-    }
-  } else if(type==='waste'&&sType!=='waste'){
-    // clicked waste while something else selected — deselect and select waste
-    sel=null;
-    if(waste.length){const c=waste[waste.length-1];if(tryAutoFoundation(c,'waste',-1,waste.length-1))return;sel={card:c,sType:'waste',sIdx:-1,cIdx:waste.length-1};}
-    render();return;
-  }
-
-  if(moved){updateStats();checkWin();}
-  sel=null;render();
-}
-
-function pickupCards(sType,sIdx,cIdx){
-  if(sType==='waste')return[waste.pop()];
-  if(sType==='foundation')return[foundations[sIdx].pop()];
-  if(sType==='tableau'){const cards=tableau[sIdx].splice(cIdx);flipTop(sIdx);return cards;}
-  return[];
-}
-
-function generateMatchId(){
-  return 'match_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
-}
-
-function getInviteLink(matchId){
-  const url=new URL(window.location.href);
-  url.searchParams.set('match',matchId);
-  return url.toString();
-}
-
-function detectInviteMatch(){
-  const params=new URLSearchParams(window.location.search);
-  const match=params.get('match');
-  if(match){
-    invitedMatchId=match;
-    currentMatchId=match;
-    gameMode='pvp';
-  }
-}
-
-function createPvpMatch(){
-  currentMatchId=generateMatchId();
-  const link=getInviteLink(currentMatchId);
-  navigator.clipboard?.writeText(link).then(
-    ()=>showToast('🔗 PvP invite link copied!','success'),
-    ()=>showToast('🔗 Invite link created. Copy it from the panel.','info')
-  );
-  updateOpponentUI();
-}
-
-function setupRobotOpponent(){
-  robotProgress=0;
-  robotHasFinished=false;
-  robotFinishTime=150+Math.floor(Math.random()*90);
-  updateOpponentUI();
-}
-
-function updateMissionsUI(){
-  const el=document.getElementById('missionsPanel');
-  if(!el)return;
-
-  const data=loadDailyMissions();
-
-  el.innerHTML=`<div class="missions-title">Daily Missions</div>` + data.missions.map(m=>{
-    return `<div class="mission-item ${m.completed?'done':''}">
-      <div>
-        <strong>${m.completed?'✅ ':''}${m.title}</strong>
-        <span>${m.progress}/${m.target} • +${m.rewardXP} XP</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function awardCompletedMissions(before, after){
-  const completed=getCompletedMissionRewards(before, after);
-  if(!completed.length||!playerProfile)return;
-
-  completed.forEach(m=>{
-    playerProfile=saveProfile({
-      ...playerProfile,
-      xp: playerProfile.xp + m.rewardXP,
-      level: Math.max(playerProfile.level, Math.floor(Math.sqrt((playerProfile.xp + m.rewardXP)/100)))
-    });
-    showToast(`🎯 Mission complete: ${m.title} (+${m.rewardXP} XP)`,'success');
-  });
-
-  updateProfileUI();
-}
-
-
-
-
-function updateAchievementsUI(){
-  const panel=document.getElementById('achievementsPanel');
-  if(!panel)return;
-
-  const unlocked=unlockedAchievements();
-
-  let html='<div class="history-title">🏅 Achievements</div>';
-
-  if(!unlocked.length){
-    html+='<p class="history-empty">No achievements unlocked yet.</p>';
+  if(stock.length){
+    const card = stock.pop();
+    card.face = true;
+    waste.push(card);
   }else{
-    html+=unlocked.map(id=>{
-      const a=achievementById(id);
-      if(!a)return '';
-      return `<div class="achievement-item">
-        <span class="achievement-icon">${a.icon}</span>
-        <div><strong>${a.title}</strong><small>${a.description}</small></div>
-      </div>`;
-    }).join('');
+    stock = waste.reverse().map(c => ({...c, face:false}));
+    waste = [];
   }
 
-  panel.innerHTML=html;
+  moves++;
+  render();
+  updateStats();
 }
 
-function notifyAchievements(items){
-  if(!items||!items.length)return;
-  items.forEach(a=>showToast(`${a.icon} Achievement unlocked: ${a.title}`,'success'));
-  updateAchievementsUI();
+function canMoveToFoundation(card, pile){
+  if(!card)return false;
+  if(!pile.length)return card.rank === 1;
+  const top = pile[pile.length-1];
+  return top.suit === card.suit && card.rank === top.rank + 1;
 }
 
-
-function updateLeaderboardUI(){
-  const panel=document.getElementById('leaderboardPanel');
-  if(!panel)return;
-
-  const players=topPlayers();
-
-  let html='<div class="history-title">🏆 Leaderboard</div>';
-
-  if(players.length===0){
-    html+='<p class="history-empty">No ranked players yet.</p>';
-  }else{
-    players.forEach((p,i)=>{
-      html+=`
-      <div class="history-item">
-        <strong>#${i+1} ${p.username}</strong><br>
-        XP ${p.xp} • Wins ${p.wins} • Score ${p.score}
-      </div>`;
-    });
-  }
-
-  panel.innerHTML=html;
+function canMoveToTableau(card, pile){
+  if(!card)return false;
+  if(!pile.length)return card.rank === 13;
+  const top = pile[pile.length-1];
+  return top.face && RED.has(card.suit) !== RED.has(top.suit) && card.rank === top.rank - 1;
 }
 
-
-function updateHistoryUI(){
-  const el=document.getElementById('historyPanel');
-  if(!el)return;
-
-  const history=loadHistory().slice(0,5);
-
-  if(!history.length){
-    el.innerHTML=`<div class="history-title">Recent Games</div><p class="history-empty">No completed games yet.</p>`;
-    return;
-  }
-
-  el.innerHTML=`<div class="history-title">Recent Games</div>` + history.map(h=>{
-    const result=h.won?'Won':h.timedOut?'Timed out':'Ended';
-    const time=formatTime(h.seconds);
-    return `<div class="history-item">
-      <div><strong>${result}</strong><span>${h.mode} • ${time} • ${h.moves} moves</span></div>
-      <small>${h.score} pts</small>
-    </div>`;
-  }).join('');
-}
-
-function updateOpponentUI(){
-  const el=document.getElementById('opponentPanel');
-  if(!el)return;
-
-  if(gameMode==='solo'){
-    el.style.display='none';
-    return;
-  }
-
-  el.style.display='block';
-
-  if(gameMode==='robot'){
-    el.innerHTML=`<div class="opponent-title">🤖 Robot Opponent</div>
-      <div class="opponent-row"><span>Mode</span><strong>Player vs Robot</strong></div>
-      <div class="opponent-row"><span>Robot progress</span><strong>${Math.min(robotProgress,100)}%</strong></div>
-      <div class="opponent-meter"><div style="width:${Math.min(robotProgress,100)}%"></div></div>`;
-  }else if(gameMode==='pvp'){
-    const link=currentMatchId?getInviteLink(currentMatchId):'';
-    el.innerHTML=`<div class="opponent-title">👥 Player vs Player</div>
-      <div class="opponent-row"><span>Match</span><strong>${currentMatchId?'Created':'Not created'}</strong></div>
-      <div class="opponent-row"><span>Status</span><strong>${invitedMatchId?'Joined via invite':'Invite mode'}</strong></div>
-      ${currentMatchId?`<div class="invite-box">${link}</div>`:''}
-      <button class="btn btn-sm" id="createPvpBtn" style="margin-top:10px">${currentMatchId?'Copy Invite Link':'Create Invite Link'}</button>
-      <p class="opponent-note">First version: share the link and compare completion time. Real-time multiplayer comes next.</p>`;
-
-    setTimeout(()=>{
-      const btn=document.getElementById('createPvpBtn');
-      if(btn){
-        btn.onclick=()=>{
-          if(!currentMatchId)createPvpMatch();
-          else{
-            navigator.clipboard?.writeText(getInviteLink(currentMatchId));
-            showToast('🔗 Invite link copied!','success');
-          }
-        };
-      }
-    },0);
-  }
-}
-
-function robotTick(){
-  if(gameMode!=='robot'||robotHasFinished||!gameActive)return;
-
-  robotProgress=Math.floor((seconds/robotFinishTime)*100);
-  updateOpponentUI();
-
-  if(seconds>=robotFinishTime){
-    robotHasFinished=true;
-    clearInterval(timerInterval);
-    gameActive=false;
-    sel=null;
-    showToast('🤖 Robot finished first. You lost this round.','error');
-    render();
-  }
-}
-
-function endGameTimeout(){
-  clearInterval(timerInterval);
-  gameActive=false;
-  sel=null;
-  finishSession({won:false,timedOut:true,seconds,moves,score});
-  updateHistoryUI();
-  updateLeaderboardUI();
-
-  document.getElementById('winOverlay').classList.add('show');
-  document.querySelector('.win-emoji').textContent='⏰';
-  document.querySelector('.win-card h2').textContent='Game Over';
-  document.querySelector('.win-card p').textContent='Your 4 minutes are up. You can play again or quit for now.';
-  document.getElementById('winReward').innerHTML=`Time: ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} <span>${moves} moves • ${score} points</span>`;
-  document.getElementById('claimBtn').style.display='none';
-  document.getElementById('playAgainBtn').textContent='Play Again';
-
+function selectCard(source, col, index){
+  selected = {source, col, index};
   render();
 }
 
-function setGameMode(mode){
-  gameMode=mode;
-  document.querySelectorAll('.mode-btn').forEach(btn=>btn.classList.remove('active'));
-  const active=document.querySelector(`[data-mode="${mode}"]`);
-  if(active)active.classList.add('active');
+function getSelectedCards(){
+  if(!selected)return [];
+  if(selected.source === 'waste') return [waste[waste.length-1]];
+  if(selected.source === 'tableau') return tableau[selected.col].slice(selected.index);
+  return [];
+}
 
-  if(mode==='pvp'&&!currentMatchId){currentMatchId=null;}
-  if(mode==='robot'){
-    showToast('🤖 Player vs Robot mode selected. Robot logic coming next.','info');
-  }else if(mode==='pvp'){
-    showToast('👥 Player vs Player mode selected. Multiplayer logic coming next.','info');
-  }else{
-    showToast('♠ Solo mode selected.','success');
+function removeSelected(){
+  if(!selected)return;
+  if(selected.source === 'waste') waste.pop();
+  if(selected.source === 'tableau'){
+    tableau[selected.col].splice(selected.index);
+    const pile = tableau[selected.col];
+    if(pile.length && !pile[pile.length-1].face) pile[pile.length-1].face = true;
   }
+  selected = null;
+}
 
-  newGame();
+function moveToFoundation(f){
+  const cards = getSelectedCards();
+  if(cards.length !== 1)return;
+  if(canMoveToFoundation(cards[0], foundations[f])){
+    foundations[f].push(cards[0]);
+    removeSelected();
+    moves++;
+    score += 100;
+    checkWin();
+    render();
+    updateStats();
+  }
+}
+
+function moveToTableau(col){
+  const cards = getSelectedCards();
+  if(!cards.length)return;
+  if(canMoveToTableau(cards[0], tableau[col])){
+    tableau[col].push(...cards);
+    removeSelected();
+    moves++;
+    score += 15;
+    render();
+    updateStats();
+  }
 }
 
 function checkWin(){
-  if(!foundations.every(f=>f.length===13))return;
-  clearInterval(timerInterval);gameActive=false;
-  if(gameMode==='robot'&&!robotHasFinished){showToast('🏆 You beat the robot!','success');}
-  _fastWin=seconds<120;_efficient=moves<100;
-  recordGame({walletAddress:walletAddress||'Guest',username:(playerProfile?.username)||'Guest',score,seconds,moves,xp:(playerProfile?.xp)||0,won:true});
-  finishSession({won:true,timedOut:false,seconds,moves,score});
-  let beforeMissionWin=loadDailyMissions();
-  let afterMissionWin=progressMission('win_one',1);
-  awardCompletedMissions(beforeMissionWin,afterMissionWin);
-  if(seconds<240){
-    beforeMissionWin=loadDailyMissions();
-    afterMissionWin=progressMission('under_four_minutes',1);
-    awardCompletedMissions(beforeMissionWin,afterMissionWin);
+  if(foundations.every(p => p.length === 13)){
+    winGame();
   }
-  updateHistoryUI();
-  updateLeaderboardUI();
-  const reward=calcReward();totalEarned+=reward;if(playerProfile){playerProfile=recordWin(playerProfile,{seconds,moves,reward});notifyAchievements(evaluateAchievements(playerProfile,{won:true,seconds,moves}));updateProfileUI();}updateStats();
-  document.getElementById('winReward').innerHTML=`+${reward.toFixed(3)} STX <span>Completed in ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} before the 4-minute limit</span>`;
-  document.getElementById('winOverlay').classList.add('show');
-  launchConfetti();
 }
-function calcReward(){let r=0.05;if(seconds<120)r+=0.02;else if(seconds<300)r+=0.01;if(moves<100)r+=0.01;return r;}
 
-// ── Render ────────────────────────────────────────────────
-function mkCardEl(card,type,idx,cardIdx){
+function cardHTML(card, source, col, index){
+  const color = RED.has(card.suit) ? 'red' : 'black';
+  const selectedClass = selected &&
+    selected.source === source &&
+    selected.col === col &&
+    selected.index <= index ? 'selected' : '';
+
   if(!card.face){
-    const el=document.createElement('div');
-    el.className='card card-back';
-    return el;
+    return `<div class="card card-back" data-source="${source}" data-col="${col}" data-index="${index}"></div>`;
   }
-  const isSel=sel&&sel.sType===type&&sel.sIdx===idx&&sel.cIdx<=cardIdx&&(type==='tableau'||sel.cIdx===cardIdx);
-  const el=document.createElement('div');
-  el.className=`card ${SUIT_CLR[card.suit]}${isSel?' selected':''}`;
-  el.innerHTML=`<div class="card-face"><div class="card-corner"><div class="card-val">${card.val}</div><div class="card-suit">${card.suit}</div></div><div class="card-center">${card.suit}</div><div class="card-corner bottom"><div class="card-val">${card.val}</div><div class="card-suit">${card.suit}</div></div></div>`;
-  el.addEventListener('click',e=>{
-    e.stopPropagation();
-    handleClick(type,idx,cardIdx);
-  });
-  return el;
+
+  return `
+    <div class="card ${color} ${selectedClass}" data-source="${source}" data-col="${col}" data-index="${index}">
+      <div class="corner"><b>${card.val}</b><span>${card.suit}</span></div>
+      <div class="center">${card.suit}</div>
+      <div class="corner bottom"><b>${card.val}</b><span>${card.suit}</span></div>
+    </div>
+  `;
 }
 
 function render(){
-  // Stock
-  const stockSlot=document.getElementById('stock');
-  stockSlot.innerHTML='';
-  const sEl=document.createElement('div');
-  if(stock.length){sEl.className='card card-back';sEl.style.position='relative';}
-  else{sEl.className='card';sEl.style.cssText='position:relative;background:rgba(255,255,255,.04);border:2px dashed var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--muted)';sEl.textContent='↩';}
-  sEl.addEventListener('click',e=>{e.stopPropagation();handleClick('stock',-1,-1);});
-  stockSlot.appendChild(sEl);
+  document.getElementById('stock').innerHTML = stock.length ? `<div class="card card-back"></div>` : `<div class="empty-card">↻</div>`;
+  document.getElementById('waste').innerHTML = waste.length ? cardHTML(waste[waste.length-1], 'waste', -1, waste.length-1) : `<div class="empty-card"></div>`;
 
-  // Waste
-  const wasteSlot=document.getElementById('waste');
-  wasteSlot.innerHTML='';
-  if(waste.length){
-    const el=mkCardEl(waste[waste.length-1],'waste',-1,waste.length-1);
-    el.style.position='relative';
-    wasteSlot.appendChild(el);
-  }
-  // click on empty waste = deselect
-  wasteSlot.addEventListener('click',e=>{e.stopPropagation();if(!waste.length&&sel){sel=null;render();}});
+  document.getElementById('foundations').innerHTML = foundations.map((pile, i) => `
+    <div class="foundation" data-foundation="${i}">
+      ${pile.length ? cardHTML(pile[pile.length-1], 'foundation', i, pile.length-1) : `<span>${SUITS[i]}</span>`}
+    </div>
+  `).join('');
 
-  // Foundations
-  const fc=document.getElementById('foundations');
-  fc.innerHTML='';
-  for(let f=0;f<4;f++){
-    const slot=document.createElement('div');
-    slot.className='card-slot';
-    slot.style.cursor='pointer';
-    if(foundations[f].length){
-      const el=mkCardEl(foundations[f][foundations[f].length-1],'foundation',f,foundations[f].length-1);
-      el.style.position='relative';
-      slot.appendChild(el);
-    } else {
-      slot.innerHTML=`<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;color:var(--border)">${SUITS[f]}</span>`;
-    }
-    slot.addEventListener('click',e=>{e.stopPropagation();handleClick('foundation',f,-1);});
-    fc.appendChild(slot);
-  }
+  document.getElementById('tableau').innerHTML = tableau.map((pile, col) => `
+    <div class="tableau-col" data-tableau="${col}">
+      ${pile.map((card, i) => `<div class="stack-card" style="top:${i*30}px">${cardHTML(card,'tableau',col,i)}</div>`).join('')}
+    </div>
+  `).join('');
 
-  // Tableau
-  const tc=document.getElementById('tableau');
-  tc.innerHTML='';
-  for(let col=0;col<7;col++){
-    const colEl=document.createElement('div');
-    colEl.className='tableau-col';
-    const colCards=tableau[col];
-    colEl.style.minHeight=Math.max(110,colCards.length*24+90)+'px';
-
-    if(colCards.length===0){
-      // empty col — click to drop King
-      colEl.addEventListener('click',e=>{e.stopPropagation();handleClick('tableau',col,-1);});
-    }
-
-    colCards.forEach((card,idx)=>{
-      const el=mkCardEl(card,'tableau',col,idx);
-      el.style.cssText=`position:absolute;top:${idx*24}px;left:0;z-index:${idx+1}`;
-      colEl.appendChild(el);
-    });
-
-    tc.appendChild(colEl);
-  }
+  bindClicks();
 }
 
-function launchConfetti(){const colors=['#7c3aed','#a855f7','#06b6d4','#ec4899','#10b981','#f59e0b'];for(let i=0;i<80;i++)setTimeout(()=>{const el=document.createElement('div');el.className='confetti-piece';el.style.cssText=`left:${Math.random()*100}vw;background:${colors[Math.floor(Math.random()*colors.length)]};animation-duration:${1.5+Math.random()*2}s;animation-delay:${Math.random()*.5}s;width:${6+Math.random()*8}px;height:${6+Math.random()*8}px`;document.body.appendChild(el);setTimeout(()=>el.remove(),4000);},i*30);}
-function showToast(msg,type='info'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),3200);}
-window.showToast=showToast;
+function bindClicks(){
+  document.getElementById('stock').onclick = drawStock;
 
-// ── DOM ───────────────────────────────────────────────────
-document.getElementById('app').innerHTML=`<header><div class="logo"><div class="logo-icon">♠</div>STX<span>Solitaire</span></div><div class="wallet-section"><div class="balance-pill" id="balancePill" style="display:none"><span class="dot"></span><span id="walletAddr" style="font-size:11px;color:var(--muted)"></span>&nbsp;|&nbsp;<span id="balanceAmt">0.00</span> STX</div><button class="btn btn-primary" id="connectBtn">Connect Wallet</button><button class="btn btn-sm" id="disconnectBtn" style="display:none">Disconnect</button></div></header><div class="mode-bar" id="modeBar" style="display:none"><button class="mode-btn active" data-mode="solo" id="soloModeBtn">♠ Solo</button><button class="mode-btn" data-mode="robot" id="robotModeBtn">🤖 Player vs Robot</button><button class="mode-btn" data-mode="pvp" id="pvpModeBtn">👥 Player vs Player</button></div><div class="stats-bar" id="statsBar" style="display:none"><div class="stat">🕐 <strong id="timerDisplay">0:00</strong> Time</div><div class="stat-divider"></div><div class="stat">🔄 <strong id="movesDisplay">0</strong> Moves</div><div class="stat-divider"></div><div class="stat">🏆 <strong id="scoreDisplay">0</strong> Score</div><div class="stat-divider"></div><div class="stat">💎 <strong id="rewardDisplay">0.000</strong> STX Earned</div><div class="stat-divider"></div><button class="btn btn-sm" id="newGameBtn">New Game</button></div><div class="game-wrap"><div class="wallet-gate" id="walletGate"><div class="gate-icon">♠</div><h2>Play. Compete. Earn.</h2><p>Connect your Stacks wallet to play. Win games, build your profile, earn XP, and claim limited STX rewards on-chain.</p><div class="reward-chips"><div class="chip purple">💎 Up to 0.08 STX daily reward</div><div class="chip cyan">⚡ Speed bonuses</div><div class="chip green">🔗 On-chain verified</div></div><button class="btn btn-primary" style="padding:12px 32px;font-size:16px" id="connectBtn2">Connect Stacks Wallet</button><p style="font-size:12px;color:var(--muted)">Works with Hiro Wallet & Xverse</p></div><div class="board" id="board"><div class="top-row"><div class="top-left"><div class="card-slot" id="stock"></div><div class="card-slot" id="waste"></div></div><div class="top-right" id="foundations"></div></div><div class="tableau" id="tableau"></div></div><aside class="profile-card" id="profileCard"></aside><aside class="opponent-panel" id="opponentPanel"></aside><aside class="history-panel" id="historyPanel"></aside><aside class="missions-panel" id="missionsPanel"></aside><aside class="history-panel" id="leaderboardPanel"></aside><aside class="history-panel" id="achievementsPanel"></aside></div><div class="win-overlay" id="winOverlay"><div class="win-card"><div class="win-emoji">🎉</div><h2>You Won!</h2><p>Amazing! You completed the game and earned STX rewards on Stacks.</p><div class="reward-display" id="winReward">+0.05 STX <span>Daily reward claim on Stacks</span></div><div style="display:flex;gap:10px;justify-content:center;margin-top:8px"><button class="btn btn-green" id="claimBtn">Claim Reward 🔗</button><button class="btn btn-sm" id="playAgainBtn">Play Again</button><button class="btn btn-sm" id="quitBtn">Quit</button></div></div></div><div class="toast" id="toast"></div>`;
+  document.querySelectorAll('.card').forEach(el => {
+    el.onclick = e => {
+      e.stopPropagation();
+      const source = el.dataset.source;
+      const col = Number(el.dataset.col);
+      const index = Number(el.dataset.index);
 
-function afterConnect(user){
-  const addr=user?.profile?.stxAddress?.testnet||'SP2X…K9QM';
-  playerProfile=loadProfile(addr);
-  saveProfile(playerProfile);
-  document.getElementById('walletGate').style.display='none';
-  document.getElementById('connectBtn').style.display='none';
-  document.getElementById('disconnectBtn').style.display='inline-block';
-  document.getElementById('balancePill').style.display='flex';
-  document.getElementById('walletAddr').textContent=addr.slice(0,6)+'…'+addr.slice(-4);
-  document.getElementById('balanceAmt').textContent='2.50';
-  document.getElementById('modeBar').style.display='flex';
-  document.getElementById('statsBar').style.display='flex';
-  document.getElementById('board').classList.add('active');
-  showToast('✅ Wallet connected!','success');
-  updateProfileUI();
-  newGame();
+      if(source === 'foundation')return;
+      const card = source === 'waste' ? waste[waste.length-1] : tableau[col]?.[index];
+      if(!card?.face)return;
+
+      selectCard(source, col, index);
+    };
+  });
+
+  document.querySelectorAll('.foundation').forEach(el => {
+    el.onclick = () => moveToFoundation(Number(el.dataset.foundation));
+  });
+
+  document.querySelectorAll('.tableau-col').forEach(el => {
+    el.onclick = e => {
+      if(e.target.closest('.card'))return;
+      moveToTableau(Number(el.dataset.tableau));
+    };
+  });
 }
 
-document.getElementById('connectBtn').onclick=()=>connectWallet(afterConnect);
-document.getElementById('connectBtn2').onclick=()=>connectWallet(afterConnect);
-document.getElementById('disconnectBtn').onclick=()=>{signOut();location.reload();};
-document.getElementById('newGameBtn').onclick=newGame;
-document.getElementById('soloModeBtn').onclick=()=>setGameMode('solo');
-document.getElementById('robotModeBtn').onclick=()=>setGameMode('robot');
-document.getElementById('pvpModeBtn').onclick=()=>{setGameMode('pvp');updateOpponentUI();};
-document.getElementById('playAgainBtn').onclick=()=>{document.getElementById('winOverlay').classList.remove('show');document.getElementById('claimBtn').style.display='inline-block';document.querySelector('.win-emoji').textContent='🎉';document.querySelector('.win-card h2').textContent='You Won!';document.querySelector('.win-card p').textContent='Amazing! You completed the game and earned STX rewards on Stacks.';newGame();};
-document.getElementById('quitBtn').onclick=()=>{document.getElementById('winOverlay').classList.remove('show');document.getElementById('walletGate').style.display='flex';document.getElementById('board').classList.remove('active');document.getElementById('statsBar').style.display='none';document.getElementById('modeBar').style.display='none';showToast('Game closed. Connect or start again when ready.','info');};
-document.getElementById('claimBtn').onclick=()=>{showToast('📡 Broadcasting to Stacks testnet…','info');claimRewardOnChain(score,_fastWin,_efficient,txId=>showToast(`✅ Claimed! TX: ${txId.slice(0,12)}…`,'success'),err=>showToast(`⚠️ ${err}`,'error'));document.getElementById('winOverlay').classList.remove('show');newGame();};
+function updateStats(){
+  document.getElementById('time').textContent = formatTime(seconds);
+  document.getElementById('moves').textContent = moves;
+  document.getElementById('score').textContent = score;
+}
 
-detectInviteMatch();
-if(isSignedIn())afterConnect(getUser());
+function formatTime(sec){
+  const m = Math.floor(sec/60);
+  const s = sec%60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+document.getElementById('app').innerHTML = `
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">✦ STX <span>Solitaire</span></div>
+      <div class="player-card">
+        <div class="bot">🤖</div>
+        <p class="connected">Connected ●</p>
+        <h3>STX Player</h3>
+        <small>Platinum Player</small>
+      </div>
+      <div class="stat-card"><span>Level</span><b>23</b></div>
+      <div class="stat-card"><span>XP</span><b>5,680 / 8,000</b></div>
+      <div class="stat-card"><span>STX Earned</span><b>12.482 STX</b></div>
+      <button class="side-btn active">🎮 Play Game</button>
+      <button class="side-btn">🎯 Missions</button>
+      <button class="side-btn">🏆 Leaderboard</button>
+      <button class="side-btn">🏅 Achievements</button>
+      <button class="disconnect">Disconnect</button>
+    </aside>
+
+    <main class="main">
+      <section class="hero">
+        <div class="time-box">TIME LEFT <b id="time">0:00</b></div>
+        <div>
+          <h1>👑 STX SOLITAIRE</h1>
+          <p>PLAY • WIN • EARN</p>
+        </div>
+        <div class="score-box">SCORE <b id="score">0</b></div>
+      </section>
+
+      <section class="board-panel">
+        <div class="top-row">
+          <div class="pile-row">
+            <div id="stock" class="slot"></div>
+            <div id="waste" class="slot"></div>
+          </div>
+          <div id="foundations" class="foundation-row"></div>
+        </div>
+
+        <div id="tableau" class="tableau"></div>
+
+        <div class="controls">
+          <button id="newGame">➕ New Game</button>
+          <button>💡 Hint</button>
+          <button>↩ Undo</button>
+          <button>⏸ Pause</button>
+        </div>
+      </section>
+
+      <section class="promo">
+        <h2>PLAY SOLITAIRE<br><span>WIN STX REWARDS</span></h2>
+        <p>Complete missions, climb the leaderboard, and compete for rewards.</p>
+      </section>
+    </main>
+
+    <aside class="rightbar">
+      <div class="panel">
+        <h3>Daily Reward Pool</h3>
+        <strong>245.75 STX</strong>
+        <p>Rewards left: 12 / 20</p>
+      </div>
+      <div class="panel">
+        <h3>Top Players</h3>
+        <p>🥇 ST3...a1B2 — 12,850 XP</p>
+        <p>🥈 ST3...c3D4 — 9,760 XP</p>
+        <p>🥉 ST3...e5F6 — 8,240 XP</p>
+      </div>
+      <div class="panel">
+        <h3>Achievements</h3>
+        <p>🔥 Hot Streak</p>
+        <p>⚡ Speed Runner</p>
+        <p>🎯 Efficient Player</p>
+      </div>
+    </aside>
+  </div>
+
+  <div id="gameOver" class="overlay">
+    <div class="modal">
+      <h2 id="gameOverTitle">Game Over</h2>
+      <p id="gameOverText">Your time is up.</p>
+      <button id="playAgain">Play Again</button>
+      <button id="quit">Quit</button>
+    </div>
+  </div>
+`;
+
+document.getElementById('newGame').onclick = startGame;
+document.getElementById('playAgain').onclick = startGame;
+document.getElementById('quit').onclick = () => document.getElementById('gameOver').classList.remove('show');
+
+startGame();
