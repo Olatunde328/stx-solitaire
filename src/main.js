@@ -229,6 +229,11 @@ function bindClicks(){
       const card = source === 'waste' ? waste[waste.length-1] : tableau[col]?.[index];
       if(!card?.face)return;
 
+      if(selected && source === 'tableau'){
+        moveToTableau(col);
+        return;
+      }
+
       selectCard(source, col, index);
     };
   });
