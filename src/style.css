@@ -297,3 +297,76 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
   margin-top:2px;
   line-height:1.4;
 }
+
+/* STX Solitaire Neon Upgrade */
+body{
+  background:
+    radial-gradient(circle at 70% 10%, rgba(168,85,247,.35), transparent 30%),
+    radial-gradient(circle at 20% 20%, rgba(6,182,212,.22), transparent 35%),
+    linear-gradient(180deg,#050816 0%,#0f172a 45%,#031b12 100%) !important;
+  color:#f8fafc !important;
+}
+
+.game-wrap{
+  max-width:1250px;
+  background:
+    linear-gradient(rgba(2,6,23,.72),rgba(2,6,23,.72)),
+    radial-gradient(circle at 50% 0%,rgba(124,58,237,.35),transparent 45%);
+  border:1px solid rgba(168,85,247,.35);
+  border-radius:24px;
+  box-shadow:0 0 60px rgba(124,58,237,.25);
+  margin-top:20px;
+}
+
+.board.active{
+  display:flex !important;
+}
+
+.board{
+  background:linear-gradient(180deg,#064e3b,#052e24) !important;
+  border:1px solid rgba(16,185,129,.35);
+  border-radius:20px;
+  padding:22px;
+  min-height:560px;
+  box-shadow:inset 0 0 80px rgba(0,0,0,.35);
+}
+
+.tableau{
+  min-height:420px !important;
+  overflow:visible !important;
+}
+
+.tableau-col{
+  min-height:380px !important;
+}
+
+.card-slot{
+  border:2px dashed rgba(255,255,255,.35) !important;
+  background:rgba(15,23,42,.45) !important;
+}
+
+.card{
+  background:#fffaf0 !important;
+  border:2px solid rgba(255,255,255,.8) !important;
+  box-shadow:0 12px 25px rgba(0,0,0,.45) !important;
+}
+
+.card-back{
+  background:linear-gradient(135deg,#4c1d95,#7c3aed,#06b6d4) !important;
+}
+
+header,.stats-bar,.mode-bar,.profile-card,.opponent-panel,.history-panel,.missions-panel{
+  background:rgba(2,6,23,.72) !important;
+  border-color:rgba(148,163,184,.25) !important;
+  backdrop-filter:blur(14px);
+}
+
+.btn-primary,.mode-btn.active{
+  background:linear-gradient(135deg,#7c3aed,#06b6d4) !important;
+  box-shadow:0 0 22px rgba(124,58,237,.4);
+}
+
+.reward-display{
+  background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(245,158,11,.22)) !important;
+  border-color:#facc15 !important;
+}
