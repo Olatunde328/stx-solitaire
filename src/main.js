@@ -1,4 +1,5 @@
 import './style.css';
+import { connectWallet, disconnectWallet, isWalletConnected, getWalletAddress } from './blockchain/wallet.js';
 import {
   SUITS,
   RED,
@@ -13,6 +14,26 @@ import {
 const MAX_SECONDS = 240;
 let state = newGame();
 let timer = null;
+
+function refreshWalletUI(){
+  const title=document.getElementById('walletTitle');
+  const status=document.getElementById('walletStatus');
+  const btn=document.getElementById('walletBtn');
+  if(!title||!status||!btn)return;
+
+  if(isWalletConnected()){
+    const addr=getWalletAddress();
+    title.textContent=addr ? addr.slice(0,6)+'…'+addr.slice(-4) : 'Connected';
+    status.textContent='Wallet connected';
+    btn.textContent='Disconnect';
+    btn.onclick=disconnectWallet;
+  }else{
+    title.textContent='Guest Player';
+    status.textContent='Wallet not connected';
+    btn.textContent='Connect Wallet';
+    btn.onclick=()=>connectWallet(refreshWalletUI);
+  }
+}
 
 function startTimer(){
   clearInterval(timer);
@@ -286,8 +307,9 @@ document.getElementById('app').innerHTML = `
       <div class="brand">♠ STX <span>Solitaire V2</span></div>
       <div class="profile">
         <div class="avatar">🃏</div>
-        <h3>Stacks Player</h3>
-        <p>Play. Compete. Earn.</p>
+        <h3 id="walletTitle">Guest Player</h3>
+        <p id="walletStatus">Wallet not connected</p>
+        <button id="walletBtn" class="wallet-btn">Connect Wallet</button>
       </div>
       <div class="mini"><span>Level</span><b>1</b></div>
       <div class="mini"><span>XP</span><b>0</b></div>
@@ -354,4 +376,5 @@ document.getElementById('newGame').onclick = restart;
 document.getElementById('playAgain').onclick = restart;
 document.getElementById('quit').onclick = closeOverlay;
 
+refreshWalletUI();
 restart();

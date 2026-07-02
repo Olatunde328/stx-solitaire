@@ -214,3 +214,15 @@ body{
 .rules-panel b{
   color:#facc15;
 }
+
+.wallet-btn{
+  margin-top:10px;
+  width:100%;
+  border:0;
+  border-radius:12px;
+  padding:12px;
+  background:linear-gradient(135deg,#7c3aed,#06b6d4);
+  color:white;
+  font-weight:800;
+  cursor:pointer;
+}
