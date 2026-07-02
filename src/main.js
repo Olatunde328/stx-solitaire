@@ -234,7 +234,10 @@ function bindBoard(){
       const col = Number(card.dataset.col);
       const index = Number(card.dataset.index);
 
-      if(zone === 'foundation') return;
+      if(zone === 'foundation'){
+        if(state.selected) moveToFoundation(col);
+        return;
+      }
 
       if(state.selected && zone === 'tableau' && state.selected.col !== col){
         if(!moveToTableau(col)) selectCard(zone, col, index);
