@@ -76,8 +76,16 @@ function removeSelected(){
   }
 
   if(s.zone === 'tableau'){
-    state.tableau[s.col].splice(s.index);
-    revealTop(state.tableau, s.col);
+    const pile = state.tableau[s.col];
+    pile.splice(s.index);
+
+    if(pile.length){
+      const top = pile[pile.length - 1];
+      if(!top.faceUp){
+        top.faceUp = true;
+        state.score += 5;
+      }
+    }
   }
 
   state.selected = null;
