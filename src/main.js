@@ -1,303 +1,265 @@
 import './style.css';
+import {
+  SUITS,
+  RED,
+  newGame,
+  canMoveToTableau,
+  canMoveToFoundation,
+  revealTop,
+  hasWon
+} from './engine/game.js';
 
-const SUITS = ['♠','♥','♦','♣'];
-const RED = new Set(['♥','♦']);
-const VALUES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-const MAX_GAME_SECONDS = 240;
-
-let deck = [];
-let stock = [];
-let waste = [];
-let foundations = [[],[],[],[]];
-let tableau = [[],[],[],[],[],[],[]];
-let selected = null;
-let seconds = 0;
-let moves = 0;
-let score = 0;
+const MAX_SECONDS = 240;
+let state = newGame();
 let timer = null;
-let active = false;
 
-function buildDeck(){
-  return SUITS.flatMap(suit => VALUES.map((val, i) => ({
-    suit,
-    val,
-    rank: i + 1,
-    face: false,
-    id: `${suit}-${val}-${Math.random()}`
-  })));
-}
-
-function shuffle(cards){
-  const a = [...cards];
-  for(let i=a.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [a[i],a[j]]=[a[j],a[i]];
-  }
-  return a;
-}
-
-function startGame(){
+function startTimer(){
   clearInterval(timer);
-  deck = shuffle(buildDeck());
-  stock = [];
-  waste = [];
-  foundations = [[],[],[],[]];
-  tableau = [[],[],[],[],[],[],[]];
-  selected = null;
-  seconds = 0;
-  moves = 0;
-  score = 0;
-  active = true;
-
-  let index = 0;
-  for(let col=0; col<7; col++){
-    for(let row=0; row<=col; row++){
-      const card = deck[index++];
-      card.face = row === col;
-      tableau[col].push(card);
-    }
-  }
-
-  stock = deck.slice(index).map(c => ({...c, face:false}));
-
   timer = setInterval(() => {
-    seconds++;
+    if(!state.active) return;
+    state.seconds++;
     updateStats();
-    if(seconds >= MAX_GAME_SECONDS){
-      gameOver();
+
+    if(state.seconds >= MAX_SECONDS){
+      endGame(false, 'Game Over', 'Your 4 minutes are up. Play again or quit for now.');
     }
   }, 1000);
+}
 
-  document.getElementById('gameOver').classList.remove('show');
+function restart(){
+  state = newGame();
+  closeOverlay();
   render();
   updateStats();
-}
-
-function gameOver(){
-  clearInterval(timer);
-  active = false;
-  document.getElementById('gameOver').classList.add('show');
-  document.getElementById('gameOverTitle').textContent = 'Game Over';
-  document.getElementById('gameOverText').textContent = 'Your 4 minutes are up. Play again or quit for now.';
-}
-
-function winGame(){
-  clearInterval(timer);
-  active = false;
-  document.getElementById('gameOver').classList.add('show');
-  document.getElementById('gameOverTitle').textContent = 'You Won!';
-  document.getElementById('gameOverText').textContent = `Completed in ${formatTime(seconds)} with ${moves} moves.`;
+  startTimer();
 }
 
 function drawStock(){
-  if(!active)return;
+  if(!state.active) return;
 
-  if(stock.length){
-    const card = stock.pop();
-    card.face = true;
-    waste.push(card);
+  if(state.stock.length){
+    const card = state.stock.pop();
+    card.faceUp = true;
+    state.waste.push(card);
   }else{
-    stock = waste.reverse().map(c => ({...c, face:false}));
-    waste = [];
+    state.stock = state.waste.reverse().map(c => ({...c, faceUp:false}));
+    state.waste = [];
   }
 
-  moves++;
+  state.moves++;
+  state.selected = null;
   render();
   updateStats();
 }
 
-function canMoveToFoundation(card, pile){
-  if(!card)return false;
-  if(!pile.length)return card.rank === 1;
-  const top = pile[pile.length-1];
-  return top.suit === card.suit && card.rank === top.rank + 1;
-}
-
-function canMoveToTableau(card, pile){
-  if(!card)return false;
-  if(!pile.length)return card.rank === 13;
-  const top = pile[pile.length-1];
-  return top.face && RED.has(card.suit) !== RED.has(top.suit) && card.rank === top.rank - 1;
-}
-
-function selectCard(source, col, index){
-  selected = {source, col, index};
-  render();
-}
-
 function getSelectedCards(){
-  if(!selected)return [];
-  if(selected.source === 'waste') return [waste[waste.length-1]];
-  if(selected.source === 'tableau') return tableau[selected.col].slice(selected.index);
+  const s = state.selected;
+  if(!s) return [];
+
+  if(s.zone === 'waste'){
+    return state.waste.length ? [state.waste[state.waste.length - 1]] : [];
+  }
+
+  if(s.zone === 'tableau'){
+    return state.tableau[s.col].slice(s.index);
+  }
+
   return [];
 }
 
 function removeSelected(){
-  if(!selected)return;
-  if(selected.source === 'waste') waste.pop();
-  if(selected.source === 'tableau'){
-    tableau[selected.col].splice(selected.index);
-    const pile = tableau[selected.col];
-    if(pile.length && !pile[pile.length-1].face) pile[pile.length-1].face = true;
+  const s = state.selected;
+  if(!s) return;
+
+  if(s.zone === 'waste'){
+    state.waste.pop();
   }
-  selected = null;
+
+  if(s.zone === 'tableau'){
+    state.tableau[s.col].splice(s.index);
+    revealTop(state.tableau, s.col);
+  }
+
+  state.selected = null;
 }
 
-function moveToFoundation(f){
-  const cards = getSelectedCards();
-  if(cards.length !== 1)return;
-  if(canMoveToFoundation(cards[0], foundations[f])){
-    foundations[f].push(cards[0]);
-    removeSelected();
-    moves++;
-    score += 100;
-    checkWin();
-    render();
-    updateStats();
-  }
+function selectCard(zone, col, index){
+  const card = zone === 'waste'
+    ? state.waste[state.waste.length - 1]
+    : state.tableau[col]?.[index];
+
+  if(!card || !card.faceUp) return;
+
+  state.selected = { zone, col, index };
+  render();
 }
 
 function moveToTableau(col){
   const cards = getSelectedCards();
-  if(!cards.length)return;
+  if(!cards.length) return false;
 
-  if(canMoveToTableau(cards[0], tableau[col])){
-    tableau[col].push(...cards);
+  if(canMoveToTableau(cards[0], state.tableau[col])){
+    state.tableau[col].push(...cards);
     removeSelected();
-    moves++;
-    score += 15;
+    state.moves++;
+    state.score += 15;
     render();
     updateStats();
-    return;
+    return true;
   }
 
-  selected=null;
-  render();
+  return false;
 }
 
-function checkWin(){
-  if(foundations.every(p => p.length === 13)){
-    winGame();
+function moveToFoundation(index){
+  const cards = getSelectedCards();
+  if(cards.length !== 1) return false;
+
+  if(canMoveToFoundation(cards[0], state.foundations[index])){
+    state.foundations[index].push(cards[0]);
+    removeSelected();
+    state.moves++;
+    state.score += 100;
+    render();
+    updateStats();
+
+    if(hasWon(state)){
+      endGame(true, 'You Won!', `Completed in ${formatTime(state.seconds)} with ${state.moves} moves.`);
+    }
+
+    return true;
   }
+
+  return false;
 }
 
-function cardHTML(card, source, col, index){
+function endGame(won, title, text){
+  state.active = false;
+  clearInterval(timer);
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalText').textContent = text;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeOverlay(){
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function cardHTML(card, zone, col, index){
+  if(!card.faceUp){
+    return `<button class="card card-back" data-zone="${zone}" data-col="${col}" data-index="${index}" aria-label="Hidden card"></button>`;
+  }
+
   const color = RED.has(card.suit) ? 'red' : 'black';
-  const selectedClass = selected &&
-    selected.source === source &&
-    selected.col === col &&
-    selected.index <= index ? 'selected' : '';
-
-  if(!card.face){
-    return `<div class="card card-back" data-source="${source}" data-col="${col}" data-index="${index}"></div>`;
-  }
+  const selected = state.selected &&
+    state.selected.zone === zone &&
+    state.selected.col === col &&
+    state.selected.index <= index;
 
   return `
-    <div class="card ${color} ${selectedClass}" data-source="${source}" data-col="${col}" data-index="${index}">
-      <div class="corner"><b>${card.val}</b><span>${card.suit}</span></div>
-      <div class="center">${card.suit}</div>
-      <div class="corner bottom"><b>${card.val}</b><span>${card.suit}</span></div>
-    </div>
+    <button class="card ${color} ${selected ? 'selected' : ''}" data-zone="${zone}" data-col="${col}" data-index="${index}">
+      <span class="corner"><b>${card.value}</b><i>${card.suit}</i></span>
+      <span class="center">${card.suit}</span>
+      <span class="corner bottom"><b>${card.value}</b><i>${card.suit}</i></span>
+    </button>
   `;
 }
 
 function render(){
-  document.getElementById('stock').innerHTML = stock.length ? `<div class="card card-back"></div>` : `<div class="empty-card">↻</div>`;
-  document.getElementById('waste').innerHTML = waste.length ? cardHTML(waste[waste.length-1], 'waste', -1, waste.length-1) : `<div class="empty-card"></div>`;
+  document.getElementById('stock').innerHTML = state.stock.length
+    ? `<button class="card card-back" id="stockBtn"></button>`
+    : `<button class="empty-card" id="stockBtn">↻</button>`;
 
-  document.getElementById('foundations').innerHTML = foundations.map((pile, i) => `
+  document.getElementById('waste').innerHTML = state.waste.length
+    ? cardHTML(state.waste[state.waste.length - 1], 'waste', -1, state.waste.length - 1)
+    : `<div class="empty-card"></div>`;
+
+  document.getElementById('foundations').innerHTML = state.foundations.map((pile, i) => `
     <div class="foundation" data-foundation="${i}">
-      ${pile.length ? cardHTML(pile[pile.length-1], 'foundation', i, pile.length-1) : `<span>${SUITS[i]}</span>`}
+      ${pile.length ? cardHTML(pile[pile.length - 1], 'foundation', i, pile.length - 1) : `<span>${SUITS[i]}</span>`}
     </div>
   `).join('');
 
-  document.getElementById('tableau').innerHTML = tableau.map((pile, col) => `
+  document.getElementById('tableau').innerHTML = state.tableau.map((pile, col) => `
     <div class="tableau-col" data-tableau="${col}">
-      ${pile.map((card, i) => `<div class="stack-card" style="top:${i*30}px">${cardHTML(card,'tableau',col,i)}</div>`).join('')}
+      ${pile.map((card, i) => `<div class="stack-card" style="top:${i * 30}px">${cardHTML(card, 'tableau', col, i)}</div>`).join('')}
     </div>
   `).join('');
 
-  bindClicks();
+  bindBoard();
 }
 
-function bindClicks(){
-  document.getElementById('stock').onclick = drawStock;
+function bindBoard(){
+  document.getElementById('stockBtn').onclick = drawStock;
 
-  document.querySelectorAll('.card').forEach(el => {
-    el.onclick = e => {
+  document.querySelectorAll('.card').forEach(card => {
+    card.onclick = e => {
       e.stopPropagation();
-      const source = el.dataset.source;
-      const col = Number(el.dataset.col);
-      const index = Number(el.dataset.index);
 
-      if(source === 'foundation')return;
-      const card = source === 'waste' ? waste[waste.length-1] : tableau[col]?.[index];
-      if(!card?.face)return;
+      const zone = card.dataset.zone;
+      const col = Number(card.dataset.col);
+      const index = Number(card.dataset.index);
 
-      if(selected && source === 'tableau' && selected.col !== col){
-        moveToTableau(col);
+      if(zone === 'foundation') return;
+
+      if(state.selected && zone === 'tableau' && state.selected.col !== col){
+        if(!moveToTableau(col)) selectCard(zone, col, index);
         return;
       }
 
-      selectCard(source, col, index);
+      selectCard(zone, col, index);
     };
   });
 
-  document.querySelectorAll('.foundation').forEach(el => {
-    el.onclick = () => moveToFoundation(Number(el.dataset.foundation));
+  document.querySelectorAll('.tableau-col').forEach(colEl => {
+    colEl.onclick = e => {
+      if(e.target.closest('.card')) return;
+      moveToTableau(Number(colEl.dataset.tableau));
+    };
   });
 
-  document.querySelectorAll('.tableau-col').forEach(el => {
-    el.onclick = e => {
-      if(e.target.closest('.card'))return;
-      moveToTableau(Number(el.dataset.tableau));
-    };
+  document.querySelectorAll('.foundation').forEach(f => {
+    f.onclick = () => moveToFoundation(Number(f.dataset.foundation));
   });
 }
 
 function updateStats(){
-  document.getElementById('time').textContent = formatTime(seconds);
-  document.getElementById('moves').textContent = moves;
-  document.getElementById('score').textContent = score;
+  document.getElementById('time').textContent = formatTime(state.seconds);
+  document.getElementById('moves').textContent = state.moves;
+  document.getElementById('score').textContent = state.score;
 }
 
-function formatTime(sec){
-  const m = Math.floor(sec/60);
-  const s = sec%60;
-  return `${m}:${String(s).padStart(2,'0')}`;
+function formatTime(seconds){
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 document.getElementById('app').innerHTML = `
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">✦ STX <span>Solitaire</span></div>
-      <div class="player-card">
-        <div class="bot">🤖</div>
-        <p class="connected">Connected ●</p>
-        <h3>STX Player</h3>
-        <small>Platinum Player</small>
+      <div class="brand">♠ STX <span>Solitaire V2</span></div>
+      <div class="profile">
+        <div class="avatar">🃏</div>
+        <h3>Stacks Player</h3>
+        <p>Play. Compete. Earn.</p>
       </div>
-      <div class="stat-card"><span>Level</span><b>23</b></div>
-      <div class="stat-card"><span>XP</span><b>5,680 / 8,000</b></div>
-      <div class="stat-card"><span>STX Earned</span><b>12.482 STX</b></div>
-      <button class="side-btn active">🎮 Play Game</button>
-      <button class="side-btn">🎯 Missions</button>
-      <button class="side-btn">🏆 Leaderboard</button>
-      <button class="side-btn">🏅 Achievements</button>
-      <button class="disconnect">Disconnect</button>
+      <div class="mini"><span>Level</span><b>1</b></div>
+      <div class="mini"><span>XP</span><b>0</b></div>
+      <div class="mini"><span>Rewards</span><b>Testnet Ready</b></div>
     </aside>
 
     <main class="main">
       <section class="hero">
-        <div class="time-box">TIME LEFT <b id="time">0:00</b></div>
-        <div>
-          <h1>👑 STX SOLITAIRE</h1>
-          <p>PLAY • WIN • EARN</p>
+        <div class="hero-box"><span>Time</span><b id="time">0:00</b></div>
+        <div class="hero-title">
+          <h1>STX SOLITAIRE</h1>
+          <p>Premium Web3 Solitaire on Stacks</p>
         </div>
-        <div class="score-box">SCORE <b id="score">0</b></div>
+        <div class="hero-box"><span>Score</span><b id="score">0</b></div>
       </section>
 
-      <section class="board-panel">
+      <section class="board">
         <div class="top-row">
           <div class="pile-row">
             <div id="stock" class="slot"></div>
@@ -309,52 +271,31 @@ document.getElementById('app').innerHTML = `
         <div id="tableau" class="tableau"></div>
 
         <div class="controls">
-          <button id="newGame">➕ New Game</button>
-          <button>💡 Hint</button>
-          <button>↩ Undo</button>
-          <button>⏸ Pause</button>
+          <button id="newGame">New Game</button>
+          <div>Moves: <b id="moves">0</b></div>
         </div>
-      </section>
-
-      <section class="promo">
-        <h2>PLAY SOLITAIRE<br><span>WIN STX REWARDS</span></h2>
-        <p>Complete missions, climb the leaderboard, and compete for rewards.</p>
       </section>
     </main>
 
     <aside class="rightbar">
-      <div class="panel">
-        <h3>Daily Reward Pool</h3>
-        <strong>245.75 STX</strong>
-        <p>Rewards left: 12 / 20</p>
-      </div>
-      <div class="panel">
-        <h3>Top Players</h3>
-        <p>🥇 ST3...a1B2 — 12,850 XP</p>
-        <p>🥈 ST3...c3D4 — 9,760 XP</p>
-        <p>🥉 ST3...e5F6 — 8,240 XP</p>
-      </div>
-      <div class="panel">
-        <h3>Achievements</h3>
-        <p>🔥 Hot Streak</p>
-        <p>⚡ Speed Runner</p>
-        <p>🎯 Efficient Player</p>
-      </div>
+      <div class="panel"><h3>Daily Missions</h3><p>Win 1 game</p><p>Finish under 4 minutes</p></div>
+      <div class="panel"><h3>Leaderboard</h3><p>Coming back next</p></div>
+      <div class="panel"><h3>Achievements</h3><p>First Win • Speed Runner</p></div>
     </aside>
   </div>
 
-  <div id="gameOver" class="overlay">
+  <div class="overlay" id="overlay">
     <div class="modal">
-      <h2 id="gameOverTitle">Game Over</h2>
-      <p id="gameOverText">Your time is up.</p>
+      <h2 id="modalTitle">Game Over</h2>
+      <p id="modalText">Your time is up.</p>
       <button id="playAgain">Play Again</button>
       <button id="quit">Quit</button>
     </div>
   </div>
 `;
 
-document.getElementById('newGame').onclick = startGame;
-document.getElementById('playAgain').onclick = startGame;
-document.getElementById('quit').onclick = () => document.getElementById('gameOver').classList.remove('show');
+document.getElementById('newGame').onclick = restart;
+document.getElementById('playAgain').onclick = restart;
+document.getElementById('quit').onclick = closeOverlay;
 
-startGame();
+restart();
