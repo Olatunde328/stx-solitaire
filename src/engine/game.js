@@ -77,3 +77,19 @@ export function revealTop(tableau, col){
 export function hasWon(state){
   return state.foundations.every(pile => pile.length === 13);
 }
+
+
+export function canMoveSequence(cards){
+  if(!cards.length) return false;
+  if(cards.some(card => !card.faceUp)) return false;
+
+  for(let i = 0; i < cards.length - 1; i++){
+    const current = cards[i];
+    const next = cards[i + 1];
+
+    if(isRed(current) === isRed(next)) return false;
+    if(current.rank !== next.rank + 1) return false;
+  }
+
+  return true;
+}

@@ -6,7 +6,8 @@ import {
   canMoveToTableau,
   canMoveToFoundation,
   revealTop,
-  hasWon
+  hasWon,
+  canMoveSequence
 } from './engine/game.js';
 
 const MAX_SECONDS = 240;
@@ -73,7 +74,8 @@ function getSelectedCards(){
   }
 
   if(s.zone === 'tableau'){
-    return state.tableau[s.col].slice(s.index);
+    const cards = state.tableau[s.col].slice(s.index);
+    return canMoveSequence(cards) ? cards : [];
   }
 
   return [];
@@ -110,6 +112,14 @@ function selectCard(zone, col, index){
 
   if(!card || !card.faceUp) return;
 
+  if(zone === 'tableau'){
+    const group = state.tableau[col].slice(index);
+    if(!canMoveSequence(group)){
+      showMessage('Only fully face-up descending alternating-color groups can move.');
+      return;
+    }
+  }
+
   state.selected = { zone, col, index };
   render();
 }
@@ -118,7 +128,7 @@ function moveToTableau(col){
   const cards = getSelectedCards();
   if(!cards.length) return false;
 
-  if(canMoveToTableau(cards[0], state.tableau[col])){
+  if(canMoveSequence(cards) && canMoveToTableau(cards[0], state.tableau[col])){
     state.tableau[col].push(...cards);
     removeSelected();
     revealAvailableTopCards();
@@ -247,6 +257,14 @@ function bindBoard(){
   });
 }
 
+function showMessage(text){
+  const el = document.getElementById('message');
+  if(!el) return;
+  el.textContent = text;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.textContent = 'Build down by alternating colors. Foundations build Ace to King.', 3000);
+}
+
 function updateStats(){
   document.getElementById('time').textContent = formatTime(state.seconds);
   document.getElementById('moves').textContent = state.moves;
@@ -298,13 +316,24 @@ document.getElementById('app').innerHTML = `
           <button id="newGame">New Game</button>
           <div>Moves: <b id="moves">0</b></div>
         </div>
+        <p id="message" class="message">Build down by alternating colors. Foundations build Ace to King.</p>
       </section>
     </main>
 
     <aside class="rightbar">
-      <div class="panel"><h3>Daily Missions</h3><p>Win 1 game</p><p>Finish under 4 minutes</p></div>
-      <div class="panel"><h3>Leaderboard</h3><p>Coming back next</p></div>
-      <div class="panel"><h3>Achievements</h3><p>First Win • Speed Runner</p></div>
+      <div class="panel rules-panel">
+        <h3>🃏 Klondike Rules</h3>
+        <p><b>Goal:</b> Move all cards to the four foundations.</p>
+        <p><b>Foundations:</b> Build each suit from Ace to King.</p>
+        <p><b>Tableau:</b> Build downward from King to Ace.</p>
+        <p><b>Colors:</b> Cards must alternate red and black.</p>
+        <p><b>Groups:</b> You may move single cards or valid face-up sequences.</p>
+        <p><b>Hidden Cards:</b> A freed top hidden card flips automatically.</p>
+        <p><b>Empty Columns:</b> Only Kings can fill empty tableau spaces.</p>
+        <p><b>Stock:</b> Draw cards from stock into the waste pile.</p>
+        <p><b>Win:</b> Complete all four foundations.</p>
+      </div>
+      <div class="panel"><h3>🏆 Strategy</h3><p>Reveal hidden cards early, free empty columns for Kings, and move Aces to foundations quickly.</p></div>
     </aside>
   </div>
 
