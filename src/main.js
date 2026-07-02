@@ -160,6 +160,7 @@ function moveToFoundation(f){
 function moveToTableau(col){
   const cards = getSelectedCards();
   if(!cards.length)return;
+
   if(canMoveToTableau(cards[0], tableau[col])){
     tableau[col].push(...cards);
     removeSelected();
@@ -167,7 +168,11 @@ function moveToTableau(col){
     score += 15;
     render();
     updateStats();
+    return;
   }
+
+  selected=null;
+  render();
 }
 
 function checkWin(){
@@ -229,7 +234,7 @@ function bindClicks(){
       const card = source === 'waste' ? waste[waste.length-1] : tableau[col]?.[index];
       if(!card?.face)return;
 
-      if(selected && source === 'tableau'){
+      if(selected && source === 'tableau' && selected.col !== col){
         moveToTableau(col);
         return;
       }
