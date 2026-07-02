@@ -270,3 +270,30 @@ header{display:flex;align-items:center;justify-content:space-between;padding:16p
 .mission-item.done strong{
   color:var(--green);
 }
+
+.achievement-item{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px 0;
+  border-top:1px solid var(--border);
+}
+.achievement-item:first-of-type{
+  border-top:none;
+}
+.achievement-icon{
+  font-size:22px;
+  line-height:1;
+}
+.achievement-item strong{
+  display:block;
+  color:var(--text);
+  font-size:13px;
+}
+.achievement-item small{
+  display:block;
+  color:var(--muted);
+  font-size:11px;
+  margin-top:2px;
+  line-height:1.4;
+}

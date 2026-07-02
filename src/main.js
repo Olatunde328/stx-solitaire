@@ -1,6 +1,7 @@
 import { showConnect, UserSession, AppConfig } from '@stacks/connect';
 import { StacksTestnet } from '@stacks/network';
 import { makeContractCall, AnchorMode, PostConditionMode, uintCV, boolCV } from '@stacks/transactions';
+import { unlockedAchievements, evaluateAchievements, achievementById } from './achievements.js';
 import { loadProfile, saveProfile, recordGameStart, recordWin, formatTime } from './player.js';
 import { createSession, updateSession, finishSession, loadSession, loadHistory } from './session.js';
 import { loadDailyMissions, progressMission, getCompletedMissionRewards } from './missions.js';
@@ -58,6 +59,7 @@ function updateProfileUI(){
   updateHistoryUI();
   updateLeaderboardUI();
   updateMissionsUI();
+  updateAchievementsUI();
   if(!playerProfile)return;
   const el=document.getElementById('profileCard');
   if(!el)return;
@@ -249,6 +251,38 @@ function awardCompletedMissions(before, after){
 
 
 
+
+function updateAchievementsUI(){
+  const panel=document.getElementById('achievementsPanel');
+  if(!panel)return;
+
+  const unlocked=unlockedAchievements();
+
+  let html='<div class="history-title">🏅 Achievements</div>';
+
+  if(!unlocked.length){
+    html+='<p class="history-empty">No achievements unlocked yet.</p>';
+  }else{
+    html+=unlocked.map(id=>{
+      const a=achievementById(id);
+      if(!a)return '';
+      return `<div class="achievement-item">
+        <span class="achievement-icon">${a.icon}</span>
+        <div><strong>${a.title}</strong><small>${a.description}</small></div>
+      </div>`;
+    }).join('');
+  }
+
+  panel.innerHTML=html;
+}
+
+function notifyAchievements(items){
+  if(!items||!items.length)return;
+  items.forEach(a=>showToast(`${a.icon} Achievement unlocked: ${a.title}`,'success'));
+  updateAchievementsUI();
+}
+
+
 function updateLeaderboardUI(){
   const panel=document.getElementById('leaderboardPanel');
   if(!panel)return;
@@ -404,7 +438,7 @@ function checkWin(){
   }
   updateHistoryUI();
   updateLeaderboardUI();
-  const reward=calcReward();totalEarned+=reward;if(playerProfile){playerProfile=recordWin(playerProfile,{seconds,moves,reward});updateProfileUI();}updateStats();
+  const reward=calcReward();totalEarned+=reward;if(playerProfile){playerProfile=recordWin(playerProfile,{seconds,moves,reward});notifyAchievements(evaluateAchievements(playerProfile,{won:true,seconds,moves}));updateProfileUI();}updateStats();
   document.getElementById('winReward').innerHTML=`+${reward.toFixed(3)} STX <span>Completed in ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} before the 4-minute limit</span>`;
   document.getElementById('winOverlay').classList.add('show');
   launchConfetti();
@@ -497,7 +531,7 @@ function showToast(msg,type='info'){const t=document.getElementById('toast');t.t
 window.showToast=showToast;
 
 // ── DOM ───────────────────────────────────────────────────
-document.getElementById('app').innerHTML=`<header><div class="logo"><div class="logo-icon">♠</div>STX<span>Solitaire</span></div><div class="wallet-section"><div class="balance-pill" id="balancePill" style="display:none"><span class="dot"></span><span id="walletAddr" style="font-size:11px;color:var(--muted)"></span>&nbsp;|&nbsp;<span id="balanceAmt">0.00</span> STX</div><button class="btn btn-primary" id="connectBtn">Connect Wallet</button><button class="btn btn-sm" id="disconnectBtn" style="display:none">Disconnect</button></div></header><div class="mode-bar" id="modeBar" style="display:none"><button class="mode-btn active" data-mode="solo" id="soloModeBtn">♠ Solo</button><button class="mode-btn" data-mode="robot" id="robotModeBtn">🤖 Player vs Robot</button><button class="mode-btn" data-mode="pvp" id="pvpModeBtn">👥 Player vs Player</button></div><div class="stats-bar" id="statsBar" style="display:none"><div class="stat">🕐 <strong id="timerDisplay">0:00</strong> Time</div><div class="stat-divider"></div><div class="stat">🔄 <strong id="movesDisplay">0</strong> Moves</div><div class="stat-divider"></div><div class="stat">🏆 <strong id="scoreDisplay">0</strong> Score</div><div class="stat-divider"></div><div class="stat">💎 <strong id="rewardDisplay">0.000</strong> STX Earned</div><div class="stat-divider"></div><button class="btn btn-sm" id="newGameBtn">New Game</button></div><div class="game-wrap"><div class="wallet-gate" id="walletGate"><div class="gate-icon">♠</div><h2>Play. Compete. Earn.</h2><p>Connect your Stacks wallet to play. Win games, build your profile, earn XP, and claim limited STX rewards on-chain.</p><div class="reward-chips"><div class="chip purple">💎 Up to 0.08 STX daily reward</div><div class="chip cyan">⚡ Speed bonuses</div><div class="chip green">🔗 On-chain verified</div></div><button class="btn btn-primary" style="padding:12px 32px;font-size:16px" id="connectBtn2">Connect Stacks Wallet</button><p style="font-size:12px;color:var(--muted)">Works with Hiro Wallet & Xverse</p></div><div class="board" id="board"><div class="top-row"><div class="top-left"><div class="card-slot" id="stock"></div><div class="card-slot" id="waste"></div></div><div class="top-right" id="foundations"></div></div><div class="tableau" id="tableau"></div></div><aside class="profile-card" id="profileCard"></aside><aside class="opponent-panel" id="opponentPanel"></aside><aside class="history-panel" id="historyPanel"></aside><aside class="missions-panel" id="missionsPanel"></aside><aside class="history-panel" id="leaderboardPanel"></aside></div><div class="win-overlay" id="winOverlay"><div class="win-card"><div class="win-emoji">🎉</div><h2>You Won!</h2><p>Amazing! You completed the game and earned STX rewards on Stacks.</p><div class="reward-display" id="winReward">+0.05 STX <span>Daily reward claim on Stacks</span></div><div style="display:flex;gap:10px;justify-content:center;margin-top:8px"><button class="btn btn-green" id="claimBtn">Claim Reward 🔗</button><button class="btn btn-sm" id="playAgainBtn">Play Again</button><button class="btn btn-sm" id="quitBtn">Quit</button></div></div></div><div class="toast" id="toast"></div>`;
+document.getElementById('app').innerHTML=`<header><div class="logo"><div class="logo-icon">♠</div>STX<span>Solitaire</span></div><div class="wallet-section"><div class="balance-pill" id="balancePill" style="display:none"><span class="dot"></span><span id="walletAddr" style="font-size:11px;color:var(--muted)"></span>&nbsp;|&nbsp;<span id="balanceAmt">0.00</span> STX</div><button class="btn btn-primary" id="connectBtn">Connect Wallet</button><button class="btn btn-sm" id="disconnectBtn" style="display:none">Disconnect</button></div></header><div class="mode-bar" id="modeBar" style="display:none"><button class="mode-btn active" data-mode="solo" id="soloModeBtn">♠ Solo</button><button class="mode-btn" data-mode="robot" id="robotModeBtn">🤖 Player vs Robot</button><button class="mode-btn" data-mode="pvp" id="pvpModeBtn">👥 Player vs Player</button></div><div class="stats-bar" id="statsBar" style="display:none"><div class="stat">🕐 <strong id="timerDisplay">0:00</strong> Time</div><div class="stat-divider"></div><div class="stat">🔄 <strong id="movesDisplay">0</strong> Moves</div><div class="stat-divider"></div><div class="stat">🏆 <strong id="scoreDisplay">0</strong> Score</div><div class="stat-divider"></div><div class="stat">💎 <strong id="rewardDisplay">0.000</strong> STX Earned</div><div class="stat-divider"></div><button class="btn btn-sm" id="newGameBtn">New Game</button></div><div class="game-wrap"><div class="wallet-gate" id="walletGate"><div class="gate-icon">♠</div><h2>Play. Compete. Earn.</h2><p>Connect your Stacks wallet to play. Win games, build your profile, earn XP, and claim limited STX rewards on-chain.</p><div class="reward-chips"><div class="chip purple">💎 Up to 0.08 STX daily reward</div><div class="chip cyan">⚡ Speed bonuses</div><div class="chip green">🔗 On-chain verified</div></div><button class="btn btn-primary" style="padding:12px 32px;font-size:16px" id="connectBtn2">Connect Stacks Wallet</button><p style="font-size:12px;color:var(--muted)">Works with Hiro Wallet & Xverse</p></div><div class="board" id="board"><div class="top-row"><div class="top-left"><div class="card-slot" id="stock"></div><div class="card-slot" id="waste"></div></div><div class="top-right" id="foundations"></div></div><div class="tableau" id="tableau"></div></div><aside class="profile-card" id="profileCard"></aside><aside class="opponent-panel" id="opponentPanel"></aside><aside class="history-panel" id="historyPanel"></aside><aside class="missions-panel" id="missionsPanel"></aside><aside class="history-panel" id="leaderboardPanel"></aside><aside class="history-panel" id="achievementsPanel"></aside></div><div class="win-overlay" id="winOverlay"><div class="win-card"><div class="win-emoji">🎉</div><h2>You Won!</h2><p>Amazing! You completed the game and earned STX rewards on Stacks.</p><div class="reward-display" id="winReward">+0.05 STX <span>Daily reward claim on Stacks</span></div><div style="display:flex;gap:10px;justify-content:center;margin-top:8px"><button class="btn btn-green" id="claimBtn">Claim Reward 🔗</button><button class="btn btn-sm" id="playAgainBtn">Play Again</button><button class="btn btn-sm" id="quitBtn">Quit</button></div></div></div><div class="toast" id="toast"></div>`;
 
 function afterConnect(user){
   const addr=user?.profile?.stxAddress?.testnet||'SP2X…K9QM';
